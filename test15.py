@@ -1,12 +1,27 @@
+import pickle
 
 import networkx as nx
+import torch
+import DataSetWave
+from DataSetGen import *
 
-# Create a graph
-G = nx.DiGraph()
-G.add_edges_from([(1, 2), (2, 3), (2, 4), (4, 5)])
 
-# Find the depth of node 5
-depth = nx.shortest_path_length(G, source=5, target=1)
 
-print(depth)  # Output: 3
+#dataset = MyOwnDataset('DataGen/ret_lowret', sample = 2, delete = True)
+#print(dataset[1])
 
+
+filename = 'DataGen/ret_lowret/inst_' + str(1) + '.pickle'
+with open(filename, 'rb') as f:
+    [treeSet, retValues] = pickle.load(f)
+
+
+net = nx.DiGraph()
+for i in treeSet:
+    net.add_nodes_from(treeSet[i].nodes())
+    net.add_edges_from(treeSet[i].edges())
+
+print(DataSetWave.getFlowEdgesUp(net))
+print(DataSetWave.getFlowEdgesDown(net))
+
+showGraph(net)

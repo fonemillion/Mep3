@@ -1,7 +1,8 @@
 import torch
 from torch.nn import Linear, Conv1d
 import torch.nn.functional as F
-from torch_geometric.nn import GCNConv, SAGEConv, GraphConv, GATConv, MessagePassing, TransformerConv,NNConv, GATv2Conv
+from torch_geometric.nn import GCNConv, SAGEConv, GraphConv, GATConv, MessagePassing, TransformerConv, NNConv, \
+    GATv2Conv, InstanceNorm, GraphNorm
 from torch_geometric.nn import global_mean_pool
 from torch_geometric.loader import DataLoader
 from DataSetGen import *
@@ -19,30 +20,49 @@ class clique(torch.nn.Module):
         # TransformerConv
         # GATv2Conv
         # "add", "sum" "mean", "min", "max" or "mul"
-        self.l1 = ownLayer(xf, 10, ef)
+        self.l0 = Linear(xf,xf)
+        self.l0_2 = Linear(xf,10)
+        self.l0e = Linear(ef,ef)
+        self.n = GraphNorm(xf)
+        self.n2 = GraphNorm(ef)
+        self.l1 = ownLayer(10+xf, 10, ef)
         self.l2 = ownLayer(10+xf, 10, ef)
-        self.l3 = ownLayer(10, 10, ef)
-        self.l4 = torch.nn.Linear(10,out)
+        self.l3 = ownLayer(10+xf, 10, ef)
+        self.l4 = ownLayer(10+xf, 10, ef)
+        self.l5 = torch.nn.Linear(10,out)
 
 
     def forward(self, x, z, edge_index, z1edge_index, z2edge_index, z3edge_index,  edge_attr, pickable):
+        x1 = x
+        x1 = self.l0(x1)
+        x1 = self.n(x1)
+        x1 = self.l0_2(x1)
+        x1 = x1.relu()
 
-        x1 = self.l1(x, edge_index, edge_attr)
-        x1.relu()
-        x = torch.hstack((x,x1))
-        x = self.l2(x, edge_index, edge_attr)
-        x = torch.nn.functional.normalize(x)
-        #x.relu()
-        x = self.l3(x, edge_index, edge_attr)
-        x.relu()
-        x = self.l4(x)
+        edge_attr = self.l0e(edge_attr)
+        edge_attr = self.n2(edge_attr)
 
-        x = x[pickable]
-        x = F.softmax(x,dim=1)
+        x1 = torch.hstack((x, x1))
+        x1 = self.l1(x1, edge_index, edge_attr)
+        x1 = x1.relu()
+        x1 = torch.hstack((x,x1))
+        x1 = self.l2(x1, edge_index, edge_attr)
+        x1 = x1.relu()
+        x1 = torch.hstack((x,x1))
+        x1 = self.l3(x1, edge_index, edge_attr)
+        x1 = x1.relu()
+        x1 = torch.hstack((x,x1))
+        x1 = self.l4(x1, edge_index, edge_attr)
+        x1 = x1.relu()
+        #x1.relu()
+        x1 = self.l5(x1)
+
+        x1 = x1[pickable]
+        x1 = F.softmax(x1,dim=1)
         #x = F.softmin(x,dim=1)
 
 
-        return x
+        return x1
 
 class netw(torch.nn.Module):
     def __init__(self, zf, out):
@@ -80,16 +100,16 @@ class netw(torch.nn.Module):
         x = self.convz2(x, z1edge_index)
 
 
-        x = self.linxz(x)
+        #x = self.linxz(x)
         x = self.convxz1(x,z1edge_index)
         x = x.relu()
-        x = self.convxz2(x,z2edge_index)
-        x = x.relu()
-        x = self.convxz3(x,z1edge_index)
-        x = x.relu()
-        x = self.convxz4(x,z3edge_index)
-        x = x.relu()
-        x = self.convxz5(x,z1edge_index)
+        #x = self.convxz2(x,z2edge_index)
+        #x = x.relu()
+        #x = self.convxz3(x,z1edge_index)
+        #x = x.relu()
+        #x = self.convxz4(x,z3edge_index)
+        #x = x.relu()
+        #x = self.convxz5(x,z1edge_index)
         #x = x.relu()
 
         #x = self.convleaf(x, edge_index, edge_attr = edge_attr)
@@ -264,7 +284,7 @@ if __name__ == '__main__':
 
 
     # Rprop ASGD Adam
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.005)
     criterion = torch.nn.CrossEntropyLoss(weight= torch.tensor([weight[1], weight[0]], dtype=torch.float))
     #criterion = torch.nn.CrossEntropyLoss(weight= torch.tensor([weight[1],weight[0], 0], dtype=torch.float))
     #criterion = torch.nn.CrossEntropyLoss(weight= torch.tensor([1, 1, 0, 1], dtype=torch.float))
@@ -285,7 +305,7 @@ if __name__ == '__main__':
         i += 1
 
 
-    for epoch in range(1, 200):
+    for epoch in range(1, 400):
         losstrain = train()
         #if epoch % 10 == 0 :
         if True :

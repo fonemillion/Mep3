@@ -1,7 +1,8 @@
 import torch
 from torch.nn import Linear, Conv1d
 import torch.nn.functional as F
-from torch_geometric.nn import GCNConv, SAGEConv, GraphConv, GATConv, MessagePassing, TransformerConv,NNConv, GATv2Conv
+from torch_geometric.nn import GCNConv, SAGEConv, GraphConv, GATConv, MessagePassing, TransformerConv, NNConv, \
+    GATv2Conv, GraphNorm
 from torch_geometric.nn import global_mean_pool
 from torch_geometric.loader import DataLoader
 from DataSetGen import *
@@ -162,13 +163,19 @@ class clique(torch.nn.Module):
         # GATConv
         # TransformerConv
         # GATv2Conv
-        self.node_encx1 = Linear(xf, 10)
-        self.edge_encoder = Linear(exf, 10)
-        self.edge_encoder2 = Linear(10, 10)
-        self.edge_encoderB = Linear(exf, 10)
-        self.convx1 = TransformerConv(10, 10, edge_dim=10)
-        self.convx2 = TransformerConv(10, 10, edge_dim=10)
-        self.convx3 = TransformerConv(10, 10, edge_dim=10)
+        self.l0 = Linear(xf,xf)
+        self.l0e = Linear(exf,exf)
+        self.n2 = GraphNorm(exf)
+        self.e1 = Linear(exf, 10)
+        self.e2 = Linear(10, 10)
+        self.eA = Linear(exf, 10)
+        self.l1 = Linear(xf, 10)
+
+        self.n = GraphNorm(xf)
+        self.l2 = TransformerConv(10+xf, 10, edge_dim=10)
+        self.l3 = TransformerConv(10+xf, 10, edge_dim=10)
+        self.l4 = TransformerConv(10+xf, 10, edge_dim=10)
+        self.l5 = TransformerConv(10+xf, 10, edge_dim=10)
         #self.convx4 = TransformerConv(10, 10, edge_dim=10)
         #self.convx1 = PDNConv(10, 10, edge_dim=10, hidden_channels=10)
         #self.convx2 = PDNConv(10, 10, edge_dim=10, hidden_channels=10)
@@ -178,33 +185,43 @@ class clique(torch.nn.Module):
 
     def forward(self, x, z, edge_index, z1edge_index, z2edge_index, z3edge_index, z4edge_index, z5edge_index,  edge_attr, pickable):
         # 1. Obtain node embeddings
-        #y = self.edge_encoder(edge_attr)
-        #x = x.relu()
-        x = self.node_encx1(x)
-        x = x.relu()
+        x1 = x
+        x1 = self.l0(x1)
+        x = self.n(x1)
+        x1 = x
+        x1 = self.l1(x1)
+        x1 = x1.relu()
         #z = z.relu()
 
-        edge_attrB = self.edge_encoderB(edge_attr)
-        edge_attr = self.edge_encoder(edge_attr)
+        edge_attr = self.l0e(edge_attr)
+        edge_attr = self.n2(edge_attr)
+        edge_attrB = self.eA(edge_attr)
+        edge_attr = self.e1(edge_attr)
         edge_attr = edge_attr.relu()
-        edge_attr = self.edge_encoder2(edge_attr)
+        edge_attr = self.e2(edge_attr)
 
-        x = self.convx1(x, edge_index, edge_attr = edge_attr)
-        x = x.relu()
-        x = self.convx2(x, edge_index, edge_attr = edge_attr)
-        x = x.relu()
-        x = self.convx3(x, edge_index, edge_attr = edge_attrB)
+        x1 = torch.hstack((x,x1))
+        x1 = self.l2(x1, edge_index, edge_attr = edge_attr)
+        x1 = x1.relu()
+        x1 = torch.hstack((x,x1))
+        x1 = self.l3(x1, edge_index, edge_attr = edge_attr)
+        x1 = x1.relu()
+        x1 = torch.hstack((x,x1))
+        x1 = self.l4(x1, edge_index, edge_attr = edge_attrB)
+        x1 = x1.relu()
+        x1 = torch.hstack((x,x1))
+        x1 = self.l5(x1, edge_index, edge_attr = edge_attrB)
         #x = x.relu()
         #x = self.convx4(x, edge_index, edge_attr = edge_attrB)
 
 
-        x = self.lin(x)
-        x = x[pickable]
-        x = F.softmax(x,dim=1)
+        x1 = self.lin(x1)
+        x1 = x1[pickable]
+        x1 = F.softmax(x1,dim=1)
         #x = F.softmin(x,dim=1)
 
 
-        return x
+        return x1
 
 
 if __name__ == '__main__':
@@ -246,18 +263,18 @@ if __name__ == '__main__':
 
         return ratio
 
-    #dataset = MyOwnDataset('DataGen/ret_L15_T2', sample = 200, delete = False)
-    #dataset = MyOwnDataset('DataGen/ret_L15_T3', sample = 200, delete = True)
+    dataset = MyOwnDataset('DataGen/ret_L15_T2', sample = 'all', delete = True)
+    #dataset = MyOwnDataset('DataGen/ret_L15_T3', sample = 200, delete = False)
     #dataset = MyOwnDataset('DataGen/ret_lowret', sample = 200, delete = False)
     #dataset = MyOwnDataset('DataGen/ret_cyc', sample = 200, delete = True)
-    dataset = MyOwnDataset('DataGen/ret_lowret', sample = 200, delete = False)
+    #dataset = MyOwnDataset('DataGen/ret_lowret', sample = 200, delete = False)
 
     x_f = dataset[0].x.size()[1]
     ex_f = dataset[0].edge_attr.size()[1]
     num_classes = dataset.num_classes
     #model = GCN()
-    #model = clique(x_f,ex_f,num_classes)
-    model = netw()
+    model = clique(x_f,ex_f,num_classes)
+    #model = netw()
 
     #torch.manual_seed(12345)
     dataset = dataset.shuffle()
@@ -288,7 +305,7 @@ if __name__ == '__main__':
 
 
     # Rprop ASGD Adam
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.005)
     criterion = torch.nn.CrossEntropyLoss(weight= torch.tensor([weight[1], weight[0]], dtype=torch.float))
     #criterion = torch.nn.CrossEntropyLoss(weight= torch.tensor([weight[1],weight[0], 0], dtype=torch.float))
     #criterion = torch.nn.CrossEntropyLoss(weight= torch.tensor([1, 1, 0, 1], dtype=torch.float))
@@ -309,7 +326,7 @@ if __name__ == '__main__':
         i += 1
 
 
-    for epoch in range(1, 200):
+    for epoch in range(1, 400):
         losstrain = train()
         #if epoch % 10 == 0 :
         if True :
